@@ -15,7 +15,7 @@ class OpenAIAdapter(ProviderAdapter):
                 f"{self.base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 json=request.dict(exclude_none=True),
-                timeout=120.0
+                timeout=60.0
             )
             response.raise_for_status()
             return response.json()

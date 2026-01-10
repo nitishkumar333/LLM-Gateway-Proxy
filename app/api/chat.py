@@ -6,22 +6,28 @@ from app.config.settings import Config
 from app.database.session import get_db
 from app.models.chat import ChatCompletionRequest
 from app.core.pii_masker import PIIMasker
-from app.api.deps import verify_virtual_key
+from app.api.deps import verify_virtual_key, invalidate_virtual_key_cache
 from app.core.budget_manager import BudgetManager
 from app.core.cost_calculator import CostCalculator
 import time
+import json
 from fastapi import APIRouter
 
 chat_router = APIRouter()
 
-@chat_router.post("/v1/chat/completions")
+@chat_router.post("/ai-chat/")
 async def chat_completions(
     request_http: Request,
     request: ChatCompletionRequest,
-    virtual_key: VirtualKey = Depends(verify_virtual_key),
+    virtual_key = Depends(verify_virtual_key),
     db: Session = Depends(get_db)
 ):
-    """OpenAI-compatible chat completions endpoint"""
+    """OpenAI-compatible chat completions endpoint
+    
+    Supports provider selection:
+    - provider="auto" (default): Uses fallback chain if a provider fails
+    - provider="openai"|"anthropic"|"gemini": Direct routing, no fallback
+    """
     start_time = time.time()
     
     # PII Masking
@@ -43,7 +49,9 @@ async def chat_completions(
             provider="cache",
             model=request.model,
             cached=True,
-            latency_ms=(time.time() - start_time) * 1000
+            latency_ms=(time.time() - start_time) * 1000,
+            request_body=json.dumps(request.dict()),
+            response_body=json.dumps(cached_response)
         )
         db.add(log)
         db.commit()
@@ -57,7 +65,9 @@ async def chat_completions(
             provider="semantic_cache",
             model=request.model,
             cached=True,
-            latency_ms=(time.time() - start_time) * 1000
+            latency_ms=(time.time() - start_time) * 1000,
+            request_body=json.dumps(request.dict()),
+            response_body=json.dumps(cached_response)
         )
         db.add(log)
         db.commit()
@@ -69,7 +79,7 @@ async def chat_completions(
     if not budget_manager.check_budget(virtual_key.id, estimated_cost):
         raise HTTPException(status_code=429, detail="Budget limit exceeded")
     
-    # Execute request with fallback
+    # Execute request with fallback (conditional based on provider)
     try:
         provider_manager = request_http.app.state.provider_manager
         response, provider_used = await provider_manager.execute_with_fallback(request)
@@ -84,10 +94,11 @@ async def chat_completions(
             usage.get("completion_tokens", 0)
         )
         
-        # Update budget
+        # Update budget and invalidate cache
         budget_manager.update_spend(virtual_key.id, actual_cost)
+        invalidate_virtual_key_cache(virtual_key.id)
         
-        # Log request
+        # Log request with full request/response for fine-tuning
         log = RequestLog(
             virtual_key_id=virtual_key.id,
             provider=provider_used,
@@ -96,7 +107,9 @@ async def chat_completions(
             completion_tokens=usage.get("completion_tokens", 0),
             total_cost=actual_cost,
             latency_ms=latency_ms,
-            status="success"
+            status="success",
+            request_body=json.dumps(request.dict()),
+            response_body=json.dumps(response)
         )
         db.add(log)
         db.commit()
@@ -111,11 +124,12 @@ async def chat_completions(
         # Log error
         log = RequestLog(
             virtual_key_id=virtual_key.id,
-            provider="unknown",
+            provider=request.provider or "unknown",
             model=request.model,
             status="error",
             error_message=str(e),
-            latency_ms=(time.time() - start_time) * 1000
+            latency_ms=(time.time() - start_time) * 1000,
+            request_body=json.dumps(request.dict())
         )
         db.add(log)
         db.commit()

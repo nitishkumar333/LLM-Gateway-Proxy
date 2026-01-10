@@ -20,8 +20,7 @@ class ChatCompletionRequest(BaseModel):
     messages: List[Message]
     temperature: Optional[float] = 1.0
     max_tokens: Optional[int] = None
-    stream: Optional[bool] = False
-    top_p: Optional[float] = 1.0
+    provider: Optional[str] = "auto"  # "openai", "anthropic", "gemini", "ollama", or "auto"
 
 class ChatCompletionResponse(BaseModel):
     id: str

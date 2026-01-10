@@ -16,11 +16,9 @@ class GeminiAdapter(ProviderAdapter):
             role = "user" if msg.role in ["user", "system"] else "model"
             contents.append({"role": role, "parts": [{"text": msg.content}]})
         
-        model = "gemini-pro"
-        
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{self.base_url}/models/{model}:generateContent",
+                f"{self.base_url}/models/{request.model}:generateContent",
                 params={"key": self.api_key},
                 json={
                     "contents": contents,
@@ -29,7 +27,7 @@ class GeminiAdapter(ProviderAdapter):
                         "maxOutputTokens": request.max_tokens or 8192,
                     }
                 },
-                timeout=120.0
+                timeout=60.0
             )
             response.raise_for_status()
             data = response.json()

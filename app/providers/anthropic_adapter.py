@@ -2,7 +2,10 @@ from typing import List, Dict
 from app.models.chat import Message, ChatCompletionRequest
 from app.providers.base import ProviderAdapter
 from app.config.settings import Config
+from app.utils.logger import get_logger
 import httpx, time
+
+logger = get_logger(__name__)
 
 class AnthropicAdapter(ProviderAdapter):
     def __init__(self):
@@ -34,6 +37,8 @@ class AnthropicAdapter(ProviderAdapter):
         }
         model = model_map.get(request.model, "claude-sonnet-4-20250514")
         
+        logger.debug(f"Anthropic request - model: {model}, messages: {len(messages)}")
+        
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{self.base_url}/messages",
@@ -53,6 +58,10 @@ class AnthropicAdapter(ProviderAdapter):
             )
             response.raise_for_status()
             data = response.json()
+            
+            logger.debug(
+                f"Anthropic response - tokens: {data['usage']['input_tokens']}+{data['usage']['output_tokens']}"
+            )
             
             # Convert back to OpenAI format
             return {

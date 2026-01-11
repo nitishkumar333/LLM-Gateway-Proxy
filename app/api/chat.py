@@ -9,9 +9,12 @@ from app.core.pii_masker import PIIMasker
 from app.api.deps import verify_virtual_key, invalidate_virtual_key_cache
 from app.core.budget_manager import BudgetManager
 from app.core.cost_calculator import CostCalculator
+from app.utils.logger import get_logger
 import time
 import json
 from fastapi import APIRouter
+
+logger = get_logger(__name__)
 
 chat_router = APIRouter()
 
@@ -30,12 +33,14 @@ async def chat_completions(
     """
     start_time = time.time()
     
+    logger.info(f"Chat request received - model: {request.model}, provider: {request.provider or 'auto'}, key: {virtual_key.id[:12]}...")
+    
     # PII Masking
     if Config.ENABLE_PII_MASKING:
         for message in request.messages:
             message.content, pii_detected = PIIMasker.mask_text(message.content)
             if pii_detected:
-                print(f"PII detected and masked: {pii_detected}")
+                logger.debug(f"PII detected and masked: {pii_detected}")
     
     # Check cache first
     cache_manager = request_http.app.state.cache_manager
@@ -43,7 +48,7 @@ async def chat_completions(
     # Try exact cache
     cached_response = cache_manager.get_exact_cache(request)
     if cached_response:
-        print("Exact cache hit")
+        logger.info(f"Exact cache hit - returning cached response")
         # Log cached request
         log = RequestLog(
             virtual_key_id=virtual_key.id,
@@ -61,7 +66,7 @@ async def chat_completions(
     # Try semantic cache
     cached_response = cache_manager.get_semantic_cache(request)
     if cached_response:
-        print("Semantic cache hit")
+        logger.info(f"Semantic cache hit - returning cached response")
         log = RequestLog(
             virtual_key_id=virtual_key.id,
             provider="semantic_cache",
@@ -79,6 +84,7 @@ async def chat_completions(
     estimated_cost = 0.01  # Rough estimate
     budget_manager = BudgetManager(db)
     if not budget_manager.check_budget(virtual_key.id, estimated_cost):
+        logger.warning(f"Budget exceeded for key {virtual_key.id[:12]}...")
         raise HTTPException(status_code=429, detail="Budget limit exceeded")
     
     # Execute request with fallback (conditional based on provider)
@@ -94,6 +100,11 @@ async def chat_completions(
             request.model,
             usage.get("prompt_tokens", 0),
             usage.get("completion_tokens", 0)
+        )
+        
+        logger.info(
+            f"Chat completed - provider: {provider_used}, latency: {latency_ms:.0f}ms, "
+            f"tokens: {usage.get('total_tokens', 0)}, cost: ${actual_cost:.4f}"
         )
         
         # Update budget and invalidate cache
@@ -123,6 +134,9 @@ async def chat_completions(
         return response
         
     except Exception as e:
+        latency_ms = (time.time() - start_time) * 1000
+        logger.error(f"Chat request failed - error: {str(e)}, latency: {latency_ms:.0f}ms")
+        
         # Log error
         log = RequestLog(
             virtual_key_id=virtual_key.id,
@@ -130,7 +144,7 @@ async def chat_completions(
             model=request.model,
             status="error",
             error_message=str(e),
-            latency_ms=(time.time() - start_time) * 1000,
+            latency_ms=latency_ms,
             request_body=json.dumps(request.dict())
         )
         db.add(log)

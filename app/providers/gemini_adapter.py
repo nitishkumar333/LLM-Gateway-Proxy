@@ -2,7 +2,10 @@ from typing import Dict
 from app.models.chat import ChatCompletionRequest
 from app.providers.base import ProviderAdapter
 from app.config.settings import Config
+from app.utils.logger import get_logger
 import httpx, time
+
+logger = get_logger(__name__)
 
 class GeminiAdapter(ProviderAdapter):
     def __init__(self):
@@ -17,6 +20,8 @@ class GeminiAdapter(ProviderAdapter):
         for msg in request.messages:
             role = "user" if msg.role in ["user", "system"] else "model"
             contents.append({"role": role, "parts": [{"text": msg.content}]})
+        
+        logger.debug(f"Gemini request - model: {request.model}, messages: {len(contents)}")
         
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -34,6 +39,11 @@ class GeminiAdapter(ProviderAdapter):
             response.raise_for_status()
             data = response.json()
             
+            usage = data.get("usageMetadata", {})
+            logger.debug(
+                f"Gemini response - tokens: {usage.get('totalTokenCount', 'N/A')}"
+            )
+            
             # Convert to OpenAI format
             content = data["candidates"][0]["content"]["parts"][0]["text"]
             return {
@@ -47,8 +57,8 @@ class GeminiAdapter(ProviderAdapter):
                     "finish_reason": "stop"
                 }],
                 "usage": {
-                    "prompt_tokens": data.get("usageMetadata", {}).get("promptTokenCount", 0),
-                    "completion_tokens": data.get("usageMetadata", {}).get("candidatesTokenCount", 0),
-                    "total_tokens": data.get("usageMetadata", {}).get("totalTokenCount", 0)
+                    "prompt_tokens": usage.get("promptTokenCount", 0),
+                    "completion_tokens": usage.get("candidatesTokenCount", 0),
+                    "total_tokens": usage.get("totalTokenCount", 0)
                 }
             }

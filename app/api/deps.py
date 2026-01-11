@@ -4,8 +4,11 @@ from app.schemas.virtual_key import VirtualKey
 from app.database.session import get_db
 from app.config.settings import Config
 from pydantic import BaseModel
+from app.utils.logger import get_logger
 import redis
 import json
+
+logger = get_logger(__name__)
 
 # Redis client for virtual key caching
 redis_client = redis.from_url(Config.REDIS_URL, decode_responses=True)
@@ -28,13 +31,18 @@ async def verify_virtual_key(x_api_key: str = Header(...), db: Session = Depends
     if cached:
         key_data = json.loads(cached)
         if not key_data["enabled"]:
+            logger.warning(f"Disabled API key used: {x_api_key[:12]}...")
             raise HTTPException(status_code=401, detail="API key is disabled")
+        logger.debug(f"API key verified from cache: {x_api_key[:12]}...")
         return VirtualKeyCache(**key_data)
     
     # Query database
     key = db.query(VirtualKey).filter(VirtualKey.id == x_api_key).first()
     if not key or not key.enabled:
+        logger.warning(f"Invalid/disabled API key attempt: {x_api_key[:12]}...")
         raise HTTPException(status_code=401, detail="Invalid or disabled API key")
+    
+    logger.debug(f"API key verified from database: {x_api_key[:12]}...")
     
     # Cache the result
     key_data = {
@@ -52,3 +60,4 @@ async def verify_virtual_key(x_api_key: str = Header(...), db: Session = Depends
 def invalidate_virtual_key_cache(key_id: str):
     """Invalidate cached virtual key (call after budget updates)"""
     redis_client.delete(f"vk:{key_id}")
+    logger.debug(f"Invalidated cache for key: {key_id[:12]}...")

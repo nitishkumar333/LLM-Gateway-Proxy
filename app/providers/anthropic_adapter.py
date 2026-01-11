@@ -2,7 +2,10 @@ from typing import List, Dict
 from app.models.chat import Message, ChatCompletionRequest
 from app.providers.base import ProviderAdapter
 from app.config.settings import Config
+from app.utils.logger import get_logger
 import httpx, time
+
+logger = get_logger(__name__)
 
 class AnthropicAdapter(ProviderAdapter):
     def __init__(self):
@@ -23,6 +26,8 @@ class AnthropicAdapter(ProviderAdapter):
         return system, converted
     
     async def chat_completion(self, request: ChatCompletionRequest) -> Dict:
+        if not self.api_key:
+            raise ValueError("ANTHROPIC_API_KEY is not set.")
         system, messages = self._convert_messages(request.messages)
         
         # Map model names
@@ -31,6 +36,8 @@ class AnthropicAdapter(ProviderAdapter):
             "gpt-3.5-turbo": "claude-haiku-4-5-20251001",
         }
         model = model_map.get(request.model, "claude-sonnet-4-20250514")
+        
+        logger.debug(f"Anthropic request - model: {model}, messages: {len(messages)}")
         
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -47,10 +54,14 @@ class AnthropicAdapter(ProviderAdapter):
                     "system": system,
                     "temperature": request.temperature,
                 },
-                timeout=120.0
+                timeout=60.0
             )
             response.raise_for_status()
             data = response.json()
+            
+            logger.debug(
+                f"Anthropic response - tokens: {data['usage']['input_tokens']}+{data['usage']['output_tokens']}"
+            )
             
             # Convert back to OpenAI format
             return {

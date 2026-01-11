@@ -1,18 +1,30 @@
 from app.config.settings import Config
 from app.models.chat import ChatCompletionRequest
+from app.utils.logger import get_logger
 from typing import Optional, Dict
 import hashlib, json, redis, chromadb
 from datetime import datetime
 
+logger = get_logger(__name__)
+
 class CacheManager:
     def __init__(self):
         self.redis_client = redis.from_url(Config.REDIS_URL, decode_responses=True)
-        self.chroma_client = chromadb.Client()
+        self.chroma_client = chromadb.PersistentClient(path=Config.CHROMA_PERSIST_DIR)
         self.semantic_collection = self.chroma_client.get_or_create_collection("semantic_cache")
+        logger.debug("CacheManager initialized with Redis and ChromaDB")
     
     def _generate_cache_key(self, request: ChatCompletionRequest) -> str:
         """Generate a hash key for exact caching"""
-        cache_str = f"{request.model}:{json.dumps([m.dict() for m in request.messages], sort_keys=True)}"
+        key_factors = {
+            "model": request.model,
+            # Convert messages to dicts to ensure they are serializable
+            "messages": [m.dict() for m in request.messages], 
+            "temperature": request.temperature,
+            "max_tokens": request.max_tokens,
+            "provider": request.provider
+        }
+        cache_str = json.dumps(key_factors, sort_keys=True, default=str)
         return hashlib.sha256(cache_str.encode()).hexdigest()
     
     def get_exact_cache(self, request: ChatCompletionRequest) -> Optional[Dict]:
@@ -23,6 +35,7 @@ class CacheManager:
         key = self._generate_cache_key(request)
         cached = self.redis_client.get(f"exact:{key}")
         if cached:
+            logger.debug(f"Exact cache hit for key: {key[:16]}...")
             return json.loads(cached)
         return None
     
@@ -37,6 +50,7 @@ class CacheManager:
             Config.CACHE_TTL_SECONDS,
             json.dumps(response)
         )
+        logger.debug(f"Stored in exact cache - key: {key[:16]}..., TTL: {Config.CACHE_TTL_SECONDS}s")
     
     def get_semantic_cache(self, request: ChatCompletionRequest) -> Optional[Dict]:
         """Retrieve from semantic cache using similarity search"""
@@ -47,14 +61,23 @@ class CacheManager:
             query_text = " ".join([m.content for m in request.messages])
             results = self.semantic_collection.query(
                 query_texts=[query_text],
-                n_results=1
+                n_results=1,
+                where={
+                    "$and": [
+                        {"temperature": {"$eq": request.temperature}},
+                        {"max_tokens": {"$eq": request.max_tokens}},
+                        {"provider": {"$eq": request.provider}}
+                    ]
+                }
             )
             
             if results['distances'][0] and results['distances'][0][0] < (1 - Config.SEMANTIC_SIMILARITY_THRESHOLD):
+                similarity = 1 - results['distances'][0][0]
+                logger.debug(f"Semantic cache hit - similarity: {similarity:.3f}")
                 metadata = results['metadatas'][0][0]
                 return json.loads(metadata['response'])
         except Exception as e:
-            print(f"Semantic cache error: {e}")
+            logger.warning(f"Semantic cache lookup error: {str(e)}")
         
         return None
     
@@ -69,8 +92,15 @@ class CacheManager:
             
             self.semantic_collection.add(
                 documents=[query_text],
-                metadatas=[{"response": json.dumps(response), "timestamp": datetime.utcnow().isoformat()}],
+                metadatas=[{
+                    "response": json.dumps(response),
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "temperature": request.temperature,
+                    "max_tokens": request.max_tokens,
+                    "provider": request.provider
+                }],
                 ids=[cache_id]
             )
+            logger.debug(f"Stored in semantic cache - id: {cache_id[:16]}...")
         except Exception as e:
-            print(f"Semantic cache store error: {e}")
+            logger.warning(f"Semantic cache store error: {str(e)}")

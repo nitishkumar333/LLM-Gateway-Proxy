@@ -18,3 +18,5 @@ class RequestLog(Base):
     error_message = Column(Text, nullable=True)
     cached = Column(Boolean, default=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
+    request_body = Column(Text, nullable=True)   # Full request JSON for fine-tuning
+    response_body = Column(Text, nullable=True)  # Full response JSON for fine-tuning

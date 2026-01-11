@@ -43,6 +43,7 @@ async def chat_completions(
     # Try exact cache
     cached_response = cache_manager.get_exact_cache(request)
     if cached_response:
+        print("Exact cache hit")
         # Log cached request
         log = RequestLog(
             virtual_key_id=virtual_key.id,
@@ -60,6 +61,7 @@ async def chat_completions(
     # Try semantic cache
     cached_response = cache_manager.get_semantic_cache(request)
     if cached_response:
+        print("Semantic cache hit")
         log = RequestLog(
             virtual_key_id=virtual_key.id,
             provider="semantic_cache",

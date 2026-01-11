@@ -7,7 +7,7 @@ from datetime import datetime
 class CacheManager:
     def __init__(self):
         self.redis_client = redis.from_url(Config.REDIS_URL, decode_responses=True)
-        self.chroma_client = chromadb.Client()
+        self.chroma_client = chromadb.PersistentClient(path=Config.CHROMA_PERSIST_DIR)
         self.semantic_collection = self.chroma_client.get_or_create_collection("semantic_cache")
     
     def _generate_cache_key(self, request: ChatCompletionRequest) -> str:
@@ -55,7 +55,14 @@ class CacheManager:
             query_text = " ".join([m.content for m in request.messages])
             results = self.semantic_collection.query(
                 query_texts=[query_text],
-                n_results=1
+                n_results=1,
+                where={
+                    "$and": [
+                        {"temperature": {"$eq": request.temperature}},
+                        {"max_tokens": {"$eq": request.max_tokens}},
+                        {"provider": {"$eq": request.provider}}
+                    ]
+                }
             )
             
             if results['distances'][0] and results['distances'][0][0] < (1 - Config.SEMANTIC_SIMILARITY_THRESHOLD):
@@ -77,7 +84,13 @@ class CacheManager:
             
             self.semantic_collection.add(
                 documents=[query_text],
-                metadatas=[{"response": json.dumps(response), "timestamp": datetime.utcnow().isoformat()}],
+                metadatas=[{
+                    "response": json.dumps(response),
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "temperature": request.temperature,
+                    "max_tokens": request.max_tokens,
+                    "provider": request.provider
+                }],
                 ids=[cache_id]
             )
         except Exception as e:

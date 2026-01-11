@@ -18,6 +18,7 @@ class Config:
     ENABLE_SEMANTIC_CACHE = True
     SEMANTIC_SIMILARITY_THRESHOLD = 0.95
     CACHE_TTL_SECONDS = 3600
+    CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
     
     # Governance
     ENABLE_PII_MASKING = True

@@ -24,6 +24,3 @@ class Config:
     ENABLE_PII_MASKING = True
     DEFAULT_BUDGET_LIMIT = 100.0  # USD
     BUDGET_ALERT_THRESHOLD = 0.8  # 80%
-    
-    # Webhooks
-    SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")

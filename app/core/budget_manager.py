@@ -27,17 +27,4 @@ class BudgetManager:
             
             # Check for budget alerts
             if key.current_spend / key.budget_limit >= Config.BUDGET_ALERT_THRESHOLD:
-                self.send_budget_alert(key)
-    
-    def send_budget_alert(self, key: VirtualKey):
-        """Send budget alert webhook"""
-        if not Config.SLACK_WEBHOOK_URL:
-            return
-        
-        try:
-            message = {
-                "text": f"⚠️ Budget Alert: Virtual Key '{key.name}' has used {key.current_spend:.2f}/${key.budget_limit:.2f} ({key.current_spend/key.budget_limit*100:.1f}%)"
-            }
-            httpx.post(Config.SLACK_WEBHOOK_URL, json=message, timeout=5.0)
-        except Exception as e:
-            print(f"Failed to send budget alert: {e}")
+                pass

@@ -12,7 +12,15 @@ class CacheManager:
     
     def _generate_cache_key(self, request: ChatCompletionRequest) -> str:
         """Generate a hash key for exact caching"""
-        cache_str = f"{request.model}:{json.dumps([m.dict() for m in request.messages], sort_keys=True)}"
+        key_factors = {
+            "model": request.model,
+            # Convert messages to dicts to ensure they are serializable
+            "messages": [m.dict() for m in request.messages], 
+            "temperature": request.temperature,
+            "max_tokens": request.max_tokens,
+            "provider": request.provider
+        }
+        cache_str = json.dumps(key_factors, sort_keys=True, default=str)
         return hashlib.sha256(cache_str.encode()).hexdigest()
     
     def get_exact_cache(self, request: ChatCompletionRequest) -> Optional[Dict]:

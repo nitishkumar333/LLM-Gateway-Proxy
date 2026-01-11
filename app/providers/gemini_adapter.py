@@ -10,6 +10,8 @@ class GeminiAdapter(ProviderAdapter):
         self.base_url = "https://generativelanguage.googleapis.com/v1beta"
     
     async def chat_completion(self, request: ChatCompletionRequest) -> Dict:
+        if not self.api_key:
+            raise ValueError("GEMINI_API_KEY is not set.")
         # Convert messages
         contents = []
         for msg in request.messages:

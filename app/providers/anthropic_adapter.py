@@ -23,6 +23,8 @@ class AnthropicAdapter(ProviderAdapter):
         return system, converted
     
     async def chat_completion(self, request: ChatCompletionRequest) -> Dict:
+        if not self.api_key:
+            raise ValueError("ANTHROPIC_API_KEY is not set.")
         system, messages = self._convert_messages(request.messages)
         
         # Map model names

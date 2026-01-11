@@ -10,6 +10,9 @@ class OpenAIAdapter(ProviderAdapter):
         self.base_url = "https://api.openai.com/v1"
     
     async def chat_completion(self, request: ChatCompletionRequest) -> Dict:
+        if not self.api_key:
+            raise ValueError("OPENAI_API_KEY is not set")
+        
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{self.base_url}/chat/completions",
